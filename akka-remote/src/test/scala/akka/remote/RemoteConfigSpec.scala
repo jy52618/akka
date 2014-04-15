@@ -69,7 +69,7 @@ class RemoteConfigSpec extends AkkaSpec(
       RequireCookie should be(false)
       SecureCookie should be(None)
 
-      TransportFailureDetectorImplementationClass should be(classOf[BasicFailureDetector].getName)
+      TransportFailureDetectorImplementationClass should be(classOf[DeadlineFailureDetector].getName)
       TransportHeartBeatInterval should be(4.seconds)
       TransportFailureDetectorConfig.getMillisDuration("acceptable-heartbeat-pause") should be(20 seconds)
 

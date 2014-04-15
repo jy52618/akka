@@ -500,7 +500,7 @@ private[remote] class EndpointWriter(
 
   val extendedSystem: ExtendedActorSystem = context.system.asInstanceOf[ExtendedActorSystem]
   val remoteMetrics = RemoteMetricsExtension(extendedSystem)
-  lazy val backoffDispatcher = context.system.dispatchers.lookup("akka.remote.backoff-remote-dispatcher")
+  val backoffDispatcher = context.system.dispatchers.lookup("akka.remote.backoff-remote-dispatcher")
 
   var reader: Option[ActorRef] = None
   var handle: Option[AkkaProtocolHandle] = handleOrActive
@@ -644,26 +644,21 @@ private[remote] class EndpointWriter(
     }
 
     @tailrec def writeLoop(count: Int): Boolean =
-      if (count <= SendBufferBatchSize && !buffer.isEmpty)
+      if (count > 0 && !buffer.isEmpty)
         if (delegate(buffer.peek)) {
           buffer.removeFirst()
           writeCount += 1
-          writeLoop(count + 1)
+          writeLoop(count - 1)
         } else false
       else true
 
     @tailrec def writePrioLoop(): Boolean =
       if (prioBuffer.isEmpty) true
-      else {
-        if (writeSend(prioBuffer.peek)) {
-          prioBuffer.removeFirst()
-          writePrioLoop()
-        } else false
-      }
+      else writeSend(prioBuffer.peek) && { prioBuffer.removeFirst(); writePrioLoop() }
 
     val size = buffer.size
 
-    val ok = writePrioLoop() && writeLoop(1)
+    val ok = writePrioLoop() && writeLoop(SendBufferBatchSize)
     if (buffer.isEmpty && prioBuffer.isEmpty) {
       // FIXME remove this when testing/tuning is completed
       if (log.isDebugEnabled)
@@ -706,9 +701,17 @@ private[remote] class EndpointWriter(
     } else {
       smallBackoffCount += 1
       val s = self
-      val backoffNanos = adaptiveBackoffNanos
+      val backoffDeadlinelineNanoTime = System.nanoTime + adaptiveBackoffNanos
       Future {
-        LockSupport.parkNanos(backoffNanos)
+        @tailrec def backoff(): Unit = {
+          val backoffNanos = backoffDeadlinelineNanoTime - System.nanoTime
+          if (backoffNanos > 0) {
+            LockSupport.parkNanos(backoffNanos)
+            // parkNanos allows for spurious wakeup, check again
+            backoff()
+          }
+        }
+        backoff()
         s.tell(BackoffTimer, ActorRef.noSender)
       }(backoffDispatcher)
     }

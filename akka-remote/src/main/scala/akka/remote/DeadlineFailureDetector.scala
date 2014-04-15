@@ -20,7 +20,7 @@ import akka.util.Helpers.ConfigOps
  * @param clock The clock, returning current time in milliseconds, but can be faked for testing
  *   purposes. It is only used for measuring intervals (duration).
  */
-class BasicFailureDetector(
+class DeadlineFailureDetector(
   val acceptableHeartbeatPause: FiniteDuration)(
     implicit clock: Clock) extends FailureDetector {
 

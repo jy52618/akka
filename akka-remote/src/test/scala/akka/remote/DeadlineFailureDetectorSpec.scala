@@ -10,9 +10,9 @@ import scala.concurrent.duration._
 import akka.remote.FailureDetector.Clock
 
 @org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
-class BasicFailureDetectorSpec extends AkkaSpec {
+class DeadlineFailureDetectorSpec extends AkkaSpec {
 
-  "A BasicFailureDetector" must {
+  "A DeadlineFailureDetector" must {
 
     def fakeTimeGenerator(timeIntervals: Seq[Long]): Clock = new Clock {
       @volatile var times = timeIntervals.tail.foldLeft(List[Long](timeIntervals.head))((acc, c) ⇒ acc ::: List[Long](acc.last + c))
@@ -26,7 +26,7 @@ class BasicFailureDetectorSpec extends AkkaSpec {
     def createFailureDetector(
       acceptableLostDuration: FiniteDuration,
       clock: Clock = FailureDetector.defaultClock) =
-      new BasicFailureDetector(acceptableLostDuration)(clock = clock)
+      new DeadlineFailureDetector(acceptableLostDuration)(clock = clock)
 
     "mark node as monitored after a series of successful heartbeats" in {
       val timeInterval = List[Long](0, 1000, 100, 100)

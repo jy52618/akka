@@ -43,13 +43,11 @@ class Sender(path: String, totalMessages: Int, burstSize: Int, payloadSize: Int)
   var startTime = 0L
   var maxRoundTripMillis = 0L
 
+  context.setReceiveTimeout(3.seconds)
   sendIdentifyRequest()
 
-  def sendIdentifyRequest(): Unit = {
+  def sendIdentifyRequest(): Unit =
     context.actorSelection(path) ! Identify(path)
-    import context.dispatcher
-    context.system.scheduler.scheduleOnce(3.seconds, self, ReceiveTimeout)
-  }
 
   def receive = identifying
 
@@ -57,6 +55,7 @@ class Sender(path: String, totalMessages: Int, burstSize: Int, payloadSize: Int)
     case ActorIdentity(`path`, Some(actor)) =>
       context.watch(actor)
       context.become(active(actor))
+      context.setReceiveTimeout(Duration.Undefined)
       self ! Warmup
     case ActorIdentity(`path`, None) => println(s"Remote actor not available: $path")
     case ReceiveTimeout              => sendIdentifyRequest()
@@ -70,11 +69,11 @@ class Sender(path: String, totalMessages: Int, burstSize: Int, payloadSize: Int)
     case Start =>
       println(s"Starting benchmark of $totalMessages messages with burst size $burstSize and payload size $payloadSize")
       startTime = System.nanoTime
-      sendBatch(actor, totalMessages)
-      if (totalMessages <= burstSize)
+      val remaining = sendBatch(actor, totalMessages)
+      if (remaining == 0)
         actor ! Done
       else
-        actor ! Continue(totalMessages - burstSize, startTime, startTime, burstSize)
+        actor ! Continue(remaining, startTime, startTime, burstSize)
 
     case c @ Continue(remaining, t0, t1, n) =>
       val now = System.nanoTime()
@@ -87,13 +86,13 @@ class Sender(path: String, totalMessages: Int, burstSize: Int, payloadSize: Int)
           s"latest round-trip $roundTripMillis ms, remaining $remaining of $totalMessages")
       }
 
-      sendBatch(actor, remaining)
-      if (remaining <= burstSize)
+      val nextRemaining = sendBatch(actor, remaining)
+      if (nextRemaining == 0)
         actor ! Done
       else if (duration >= 500)
-        actor ! Continue(remaining - burstSize, now, now, burstSize)
+        actor ! Continue(nextRemaining, now, now, burstSize)
       else
-        actor ! c.copy(remaining = remaining - burstSize, burstStartTime = now, n = n + burstSize)
+        actor ! c.copy(remaining = nextRemaining, burstStartTime = now, n = n + burstSize)
 
     case Done =>
       val took = (System.nanoTime - startTime).nanos.toMillis
@@ -107,12 +106,15 @@ class Sender(path: String, totalMessages: Int, burstSize: Int, payloadSize: Int)
       println("Receiver terminated")
       context.system.shutdown()
 
-    case ReceiveTimeout =>
-    // ignore
-
   }
 
-  def sendBatch(actor: ActorRef, remaining: Int): Unit =
-    (1 to math.min(remaining, burstSize)) foreach { x => actor ! payload }
+  /**
+   * @return remaining messages after sending the batch
+   */
+  def sendBatch(actor: ActorRef, remaining: Int): Int = {
+    val batchSize = math.min(remaining, burstSize)
+    (1 to batchSize) foreach { x => actor ! payload }
+    remaining - batchSize
+  }
 }
 
